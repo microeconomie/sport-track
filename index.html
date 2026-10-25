@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>sport-track</title>
+<meta name="theme-color" content="#EEF1F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1318" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="sport-track">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png?v=1">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png?v=1">
+<link rel="manifest" href="manifest.json?v=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block">
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+
+<div class="app" id="app"><div class="loading">Chargement…</div></div>
+<div class="tabs" id="tabbar" hidden><nav id="tabs">
+  <button class="tab" data-tab="week"><span class="ms">calendar_view_week</span>Semaine</button>
+  <button class="tab" data-tab="acts"><span class="ms">format_list_bulleted</span>Activités</button>
+  <button class="tab" data-tab="stats"><span class="ms">monitoring</span>Stats</button>
+</nav></div>
+<div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" hidden><div class="grip"></div><div id="sheetBody"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
