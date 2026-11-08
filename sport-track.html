@@ -65,13 +65,15 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .dl b{font-family:var(--font-display);font-size:24px;font-weight:600;line-height:1;width:36px;height:36px;display:grid;place-items:center;border-radius:50%;font-variant-numeric:tabular-nums}
 .day.today .dl b{background:var(--accent);color:var(--accent-ink)}
 .day.today .dl small{color:var(--accent)}
-.db{display:grid;gap:6px;min-width:0}
+.db{display:flex;gap:6px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scrollbar-width:none}
+.db::-webkit-scrollbar{display:none}
+.db.more{-webkit-mask-image:linear-gradient(to right,#000 82%,transparent);mask-image:linear-gradient(to right,#000 82%,transparent)}
 .rest{color:var(--muted);font-size:14px;padding-top:9px}
 .day.future{opacity:.45}
 .add{width:34px;height:34px;border-radius:50%;border:1.5px dashed var(--line);display:grid;place-items:center;color:var(--muted)}
 .add:hover{border-color:var(--accent);color:var(--accent)}
 
-.entry{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:7px 10px 7px 7px}
+.entry{flex:1 1 0;min-width:calc((100% - 12px) / 3);scroll-snap-align:start;container-type:inline-size;display:block;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:7px 10px 7px 7px}
 .tile{width:36px;height:36px;border-radius:10px;background:color-mix(in srgb,var(--c,var(--accent)) 16%,var(--surface));color:var(--c,var(--accent));display:grid;place-items:center}
 .et{min-width:0}
 .et b{display:block;font-weight:600;font-size:15px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -80,6 +82,20 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .minis{display:flex;gap:1px;color:var(--star)}
 .minis .ms{font-size:13px}
 .minis .ms:not(.fill){color:var(--line)}
+.ein{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;height:100%}
+@container (max-width:240px){.ein{grid-template-columns:36px minmax(0,1fr)}.ein .minis{display:none}}
+@container (max-width:150px){.ein{gap:8px}.ein .et span,.ein .et b em{display:none}}
+@container (max-width:112px){.ein{grid-template-columns:minmax(0,1fr);justify-items:center;gap:4px}.ein .et{width:100%;text-align:center}.ein .et b{font-size:12px;font-weight:600}}
+.switch{flex:0 0 auto;width:48px;height:28px;border-radius:999px;background:var(--line);position:relative;transition:background .15s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s}
+.switch[aria-checked="true"]{background:var(--accent)}
+.switch[aria-checked="true"]::after{transform:translateX(20px)}
+.setrow{display:flex;align-items:center;gap:14px;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.setrow b{display:block;font-weight:600}
+.setrow span{display:block;font-size:13px;color:var(--muted)}
+.fl .lnk{text-transform:none;letter-spacing:0;font-weight:600;font-size:13px;color:var(--accent)}
+.sub{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.icg-auto{display:flex;justify-content:space-between;align-items:center;gap:10px}
 
 /* Listes (Activités, Stats) */
 .page{padding-top:18px;display:grid;gap:22px}
@@ -197,7 +213,9 @@ const DN=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 const DL=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
 const MS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 const ML=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
-const KEY='sport-track-proto-v4';
+const KEY='sport-track-proto-v5';
+const MAX_PER_DAY=10;
+const INTIMATE_ICONS=[['favorite','Cœur'],['local_fire_department','Désir'],['bedtime','Intimité'],['back_hand','Toucher'],['local_florist','Féminité'],['water_drop','Fluides corporels'],['king_bed','Vie sexuelle'],['lock','Secret intime'],['partner_heart','Relation'],['heart_broken','Rupture'],['mail','Messages privés'],['lips','Baiser'],['group','Rencontres'],['redeem','Attention'],['mood_heart','Sentiments']];
 /* Profils liés aux icônes : champs saisis + valeurs calculées */
 const PROFILES={
   run:{label:'Course',icons:['directions_run','sprint'],fields:['dist','dur'],auto:['pace','speed']},
@@ -251,30 +269,39 @@ function sample(){
     {id:'a3',name:'Sport collectif',sub:'Volley',icon:'sports_volleyball',color:'c6'},
     {id:'a4',name:'Tennis',sub:'',icon:'sports_tennis',color:'c4'},
     {id:'a5',name:'Cardio',sub:'Running',icon:'directions_run',color:'c1'},
-    {id:'a6',name:'Yoga',sub:'',icon:'self_improvement',color:'c11'}];
+    {id:'a6',name:'Yoga',sub:'',icon:'self_improvement',color:'c11'},
+    {id:'i1',name:'Soirée en amoureux',sub:'',icon:'favorite',color:'c10',intimate:true},
+    {id:'i2',name:'Moment intime',sub:'',icon:'bedtime',color:'c9',intimate:true}];
   const metrics=[
     ...BUILTINS.map(b=>({...b})),
-    {id:'m5',name:'Exercice biceps',type:'sets',unit:''}];
+    {id:'m5',name:'Exercice biceps',type:'sets',unit:'',activityId:'a1',icon:null},
+    {id:'m6',name:'Développé couché',type:'sets',unit:'',activityId:'a1',icon:null},
+    {id:'m7',name:'Tirage vertical',type:'sets',unit:'',activityId:'a2',icon:null},
+    {id:'m8',name:'Squat',type:'sets',unit:'',activityId:'a2',icon:'sports_gymnastics'}];
   const entries=[];const N=9;
   const push=(d,a,desc,rating,values={})=>{const s=iso(d);if(s<=TODAY_ISO)entries.push({id:uid(),date:s,activityId:a,desc,rating,values})};
   const run=(k,long)=>{const p=k/(N-1);let dist=Math.round((long?9+p*4:6+p*3+(k%3)*.3)*10)/10;let pace=Math.round(372-p*32+(k%2)*4+(long?18:0));return{'run-dist':dist,'run-dur':Math.round(dist*pace/60)*60,'run-pace':pace,'run-speed':Math.round(36000/pace)/10}};
   for(let k=0;k<N;k++){
     const mon=addD(CUR_MON,-7*(N-1-k));
     if(k===4){push(addD(mon,1),'a5','Footing tranquille en bord de mer, jambes lourdes.',3,run(k));push(addD(mon,6),'a6','Yin yoga, 45 min.',5);continue}
-    push(mon,'a1',['Séance correcte, fin difficile.','Bonne énergie, progression sur le curl.','Un peu fatigué mais séance complète.'][k%3],3+(k%3===1?1:0),{m5:{s:k>=6?4:3,kg:10+Math.floor(k/2),r:k%2?10:12}});
+    push(mon,'a1',['Séance correcte, fin difficile.','Bonne énergie, progression sur le curl.','Un peu fatigué mais séance complète.'][k%3],3+(k%3===1?1:0),{m5:{s:k>=6?4:3,kg:10+Math.floor(k/2),r:k%2?10:12},m6:{s:4,kg:40+k*2.5,r:8}});
     push(addD(mon,1),'a5',['Fractionné léger, bon rythme.','Sortie régulière, respiration OK.','Parcours vallonné.'][k%3],3+(k%2),run(k));
-    if(k%2===0)push(addD(mon,2),'a2','Tirage + squats.',4);
+    if(k%2===0)push(addD(mon,2),'a2','Tirage + squats.',4,{m7:{s:4,kg:35+k*2,r:10},m8:{s:4,kg:50+k*5,r:8}});
     push(addD(mon,3),'a3','Entraînement + match en 3 sets.',k%3?4:5);
     if(k%2===0)push(addD(mon,5),'a4','Simple, beaucoup d\'échanges en fond de court.',4);
     else push(addD(mon,5),'a5','Sortie longue du week-end.',k>5?4:3,run(k,true));
     if(k%3!==1)push(addD(mon,6),'a6','Vinyasa 1 h.',5);
+    if(k%3===0)push(addD(mon,6),'i2','',5);
+    if(k%4===1)push(addD(mon,4),'i1','Dîner puis cinéma.',4);
+    if(k===N-2){push(addD(mon,5),'a6','Yoga doux le matin.',4);push(addD(mon,5),'a3','Beach volley entre amis.',5);push(addD(mon,5),'i1','',5)}
   }
-  return{activities,metrics,entries};
+  return{activities,metrics,entries,settings:{intimate:true}};
 }
 let S;
 try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){}
 if(!S||!S.activities)S=sample();
 BUILTINS.forEach(b=>{if(!S.metrics.some(m=>m.id===b.id))S.metrics.push({...b})});
+if(!S.settings)S.settings={intimate:true};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const act=id=>S.activities.find(a=>a.id===id)||{name:'Activité supprimée',sub:'',icon:'help',color:'c12'};
 const met=id=>S.metrics.find(m=>m.id===id);
@@ -282,6 +309,16 @@ const profileOf=aid=>{if(!aid)return null;const ic=act(aid).icon;return Object.k
 const fieldIds=p=>PROFILES[p].fields.map(k=>`${p}-${k}`);
 const usedProfiles=()=>Object.keys(PROFILES).filter(p=>S.activities.some(a=>PROFILES[p].icons.includes(a.icon)));
 const exercises=()=>S.metrics.filter(m=>m.type==='sets'&&!m.profile);
+const intimateOn=()=>S.settings.intimate!==false;
+const isInt=aid=>!!(aid&&act(aid).intimate);
+const visible=a=>!a.intimate||intimateOn();
+const normalActs=()=>S.activities.filter(a=>!a.intimate);
+const intimateActs=()=>S.activities.filter(a=>a.intimate);
+const linkable=()=>normalActs().filter(a=>!PROFILES[Object.keys(PROFILES).find(p=>PROFILES[p].icons.includes(a.icon))]);
+const exIcon=m=>m.icon||(m.activityId&&S.activities.some(a=>a.id===m.activityId)?act(m.activityId).icon:'fitness_center');
+const exColor=m=>m.activityId&&S.activities.some(a=>a.id===m.activityId)?act(m.activityId).color:'c12';
+const exTile=m=>`<span class="tile" style="--c:var(--${exColor(m)})"><span class="ms">${exIcon(m)}</span></span>`;
+const sortedEx=()=>{const ord=id=>{const i=S.activities.findIndex(a=>a.id===id);return i<0?999:i};return exercises().slice().sort((a,b)=>ord(a.activityId)-ord(b.activityId)||a.name.localeCompare(b.name,'fr'))};
 const BUILTIN=['distance','duration','pace','speed'];
 
 /* ---------- état UI ---------- */
@@ -291,7 +328,7 @@ let toastT;function toast(t){const el=document.getElementById('toast');el.textCo
 
 function weekList(){let first=addD(CUR_MON,-7*8);for(const e of S.entries){const m=monday(pISO(e.date));if(m<first)first=m}
   const out=[];for(let m=first;m<=CUR_MON;m=addD(m,7))out.push(m);return out}
-const byDate=()=>{const o={};for(const e of S.entries)(o[e.date]=o[e.date]||[]).push(e);return o};
+const byDate=()=>{const o={};for(const e of S.entries){if(!visible(act(e.activityId)))continue;(o[e.date]=o[e.date]||[]).push(e)}return o};
 
 /* ---------- vue Semaine ---------- */
 function stars(n){let h='';for(let i=1;i<=5;i++)h+=`<span class="ms${i<=n?' fill':''}">star</span>`;return h}
@@ -299,9 +336,9 @@ function entryChip(e){const a=act(e.activityId);
   const hasEx=S.metrics.some(m=>m.type==='sets'&&e.values[m.id]!=null);
   const sum=hasEx?'':S.metrics.filter(m=>m.type!=='sets'&&e.values[m.id]!=null).slice(0,2).map(m=>fmt(m,e.values[m.id])).join(' · ');
   const line=hasEx?'':(sum||e.desc||'');
-  return `<button class="entry" data-entry="${e.id}">${tileH(a)}
+  return `<button class="entry" data-entry="${e.id}" aria-label="${esc(a.name)}${a.sub?', '+esc(a.sub):''}"><span class="ein">${tileH(a)}
   <span class="et"><b>${esc(a.name)}${a.sub?` <em>· ${esc(a.sub)}</em>`:''}</b>${line?`<span>${esc(line)}</span>`:''}</span>
-  <span class="minis" aria-label="${e.rating} sur 5">${stars(e.rating)}</span></button>`}
+  <span class="minis" aria-label="${e.rating} sur 5">${stars(e.rating)}</span></span></button>`}
 function renderWeek(){
   const weeks=weekList(),bd=byDate();if(wkIdx==null||wkIdx>=weeks.length)wkIdx=weeks.length-1;
   const counts=weeks.map(m=>{let n=0;for(let i=0;i<7;i++)n+=(bd[iso(addD(m,i))]||[]).length;return n});
@@ -309,8 +346,8 @@ function renderWeek(){
   let strip='';for(let i=start;i<weeks.length;i++)strip+=`<button class="bar${i===wkIdx?' on':''}" data-goto="${i}" aria-label="Semaine ${isoWeek(weeks[i])}, ${counts[i]} séances"><i style="height:${Math.round(4+counts[i]/maxC*34)}px"></i><span>S${isoWeek(weeks[i])}</span></button>`;
   let slides='';weeks.forEach(m=>{let h='<div class="wk">';for(let i=0;i<7;i++){const d=addD(m,i),s=iso(d),list=bd[s]||[],fut=s>TODAY_ISO;
       h+=`<div class="day${s===TODAY_ISO?' today':''}${fut?' future':''}"><div class="dl"><small>${DN[i]}</small><b>${d.getDate()}</b></div>
-      <div class="db">${list.length?list.map(entryChip).join(''):`<div class="rest">${fut?'À venir':'Repos'}</div>`}</div>
-      ${fut?'<span></span>':`<button class="add" data-add="${s}" aria-label="Ajouter une activité le ${DL[i]} ${d.getDate()}"><span class="ms">add</span></button>`}</div>`}
+      <div class="db${list.length>3?' more':''}">${list.length?list.map(entryChip).join(''):`<div class="rest">${fut?'À venir':'Repos'}</div>`}</div>
+      ${fut||list.length>=MAX_PER_DAY?'<span></span>':`<button class="add" data-add="${s}" aria-label="Ajouter une activité le ${DL[i]} ${d.getDate()}"><span class="ms">add</span></button>`}</div>`}
     slides+=h+'</div>'});
   $app.innerHTML=`<header class="top"><div class="brand"><b>sport-track</b><button class="pill" data-today ${wkIdx===weeks.length-1?'hidden':''}>Cette semaine</button></div>
     <div class="wkrow"><div class="wkt"><h1 id="wkT"></h1><p id="wkR" class="num"></p></div>
@@ -329,15 +366,22 @@ function renderWeek(){
 function goWeek(i){const W=document.getElementById('weeks');if(!W)return;const n=W.children.length;i=Math.max(0,Math.min(n-1,i));W.scrollTo({left:i*W.clientWidth})}
 
 /* ---------- vue Activités ---------- */
+const actRows=list=>`<div class="list">${list.map(a=>`<button class="row" data-act="${a.id}">${tileH(a)}
+     <span class="et"><b>${esc(a.name)}</b><span>${a.sub?esc(a.sub):'Pas de sous-titre'}</span></span><span class="ms chev">chevron_right</span></button>`).join('')}</div>`;
 function renderActs(){
+  const ia=intimateActs();
   $app.innerHTML=`<div class="page">
    <div class="ph"><h1>Activités</h1><button class="lbtn" data-newact><span class="ms">add</span>Nouvelle</button></div>
-   <div class="list">${S.activities.map(a=>`<button class="row" data-act="${a.id}">${tileH(a)}
-     <span class="et"><b>${esc(a.name)}</b><span>${a.sub?esc(a.sub):'Pas de sous-titre'}</span></span><span class="ms chev">chevron_right</span></button>`).join('')}</div>
+   ${actRows(normalActs())}
    <p class="hint">Suivi automatique selon l'icône de l'activité : course (distance, durée, allure, vitesse), vélo (durée, distance, vitesse), natation (durée, longueurs), randonnée (durée, distance, dénivelé positif).</p>
+   ${intimateOn()?`<div class="ph"><h2>Activités intimes</h2><button class="lbtn" data-newact="intimate"><span class="ms">add</span>Nouvelle</button></div>
+   ${ia.length?actRows(ia):'<div class="empty">Aucune activité intime pour l\'instant.</div>'}`:''}
    <div class="ph"><h2>Exercices</h2><button class="lbtn" data-newmet><span class="ms">add</span>Nouveau</button></div>
-   ${exercises().length?`<div class="list">${exercises().map(m=>{const n=S.entries.filter(e=>e.values[m.id]!=null).length;return `<button class="row" data-met="${m.id}"><span class="tile"><span class="ms">fitness_center</span></span>
-     <span class="et"><b>${esc(m.name)}</b><span>Séries × kg × reps · ${n} séance${n>1?'s':''}</span></span><span class="ms chev">chevron_right</span></button>`}).join('')}</div>`:'<div class="empty">Aucun exercice. Ajoute par exemple tes exercices de musculation.</div>'}
+   ${exercises().length?`<div class="list">${sortedEx().map(m=>{const n=S.entries.filter(e=>e.values[m.id]!=null).length;const pa=m.activityId&&S.activities.find(a=>a.id===m.activityId);return `<button class="row" data-met="${m.id}">${exTile(m)}
+     <span class="et"><b>${esc(m.name)}</b><span>${pa?esc(pa.name)+(pa.sub?' · '+esc(pa.sub):''):'Aucune activité liée'} · ${n} séance${n>1?'s':''}</span></span><span class="ms chev">chevron_right</span></button>`}).join('')}</div>`:'<div class="empty">Aucun exercice. Ajoute par exemple tes exercices de musculation.</div>'}
+   <div class="ph"><h2>Mode intime</h2></div>
+   <div class="setrow"><label for="intSw"><b>Activités intimes</b><span>${intimateOn()?'Visibles dans la semaine, les activités et la saisie.':'Masquées partout. Rien n\'est supprimé.'}</span></label>
+     <button class="switch" id="intSw" role="switch" aria-checked="${intimateOn()}" data-intimate aria-label="Mode intime"></button></div>
    <p class="hint">Prototype : données d'exemple, gardées dans ce navigateur. <button data-reset>Réinitialiser l'exemple</button></p></div>`}
 
 /* ---------- vue Stats ---------- */
@@ -401,24 +445,32 @@ function openEntry(date,id){
   if(e){draft={id:e.id,isNew:false,date:e.date,activityId:e.activityId,desc:e.desc||'',rating:e.rating||0,order:Object.keys(e.values).filter(k=>met(k)&&!AUTO.includes(met(k).type)),raw:{}};
     draft.order.forEach(k=>draft.raw[k]=toRaw(met(k),e.values[k]));syncOrder()}
   else{draft={id:uid(),isNew:true,date,activityId:null,desc:'',rating:0,order:[],raw:{}}}
+  draft.showInt=intimateOn()&&isInt(draft.activityId);
   openSheet('entry');drawEntry();
 }
 function lastMetricsFor(aid){const l=S.entries.filter(e=>e.activityId===aid).sort((a,b)=>a.date<b.date?1:-1)[0];return l?Object.keys(l.values).filter(k=>met(k)&&met(k).type==='sets'):[]}
+const linkedEx=aid=>exercises().filter(m=>m.activityId===aid);
 function syncOrder(){if(!draft.activityId)return;
+  if(isInt(draft.activityId)){draft.order=[];draft.raw={};return}
   const pr=profileOf(draft.activityId);
   if(pr){const ids=fieldIds(pr);draft.order=ids;ids.forEach(k=>{if(!draft.raw[k])draft.raw[k]=toRaw(met(k),null)})}
-  else{draft.order=draft.order.filter(k=>met(k)&&met(k).type==='sets');if(draft.isNew&&!draft.order.length){draft.order=lastMetricsFor(draft.activityId);draft.order.forEach(k=>{if(!draft.raw[k])draft.raw[k]=toRaw(met(k),null)})}}
+  else{draft.order=draft.order.filter(k=>met(k)&&met(k).type==='sets');if(draft.isNew&&!draft.order.length){const ln=linkedEx(draft.activityId).map(m=>m.id);draft.order=ln.length?ln:lastMetricsFor(draft.activityId);draft.order.forEach(k=>{if(!draft.raw[k])draft.raw[k]=toRaw(met(k),null)})}}
   Object.keys(draft.raw).forEach(k=>{if(!draft.order.includes(k))delete draft.raw[k]})}
 function drawEntry(err){
   const d=pISO(draft.date);const wd=(d.getDay()+6)%7;
-  const avail=exercises().filter(m=>!draft.order.includes(m.id));const prof=profileOf(draft.activityId);
+  const avail=sortedEx().filter(m=>!draft.order.includes(m.id));const prof=profileOf(draft.activityId);
+  const availL=avail.filter(m=>m.activityId===draft.activityId),availO=avail.filter(m=>m.activityId!==draft.activityId);
+  const opts=l=>l.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
   const taken=new Set(S.entries.filter(x=>x.date===draft.date&&x.id!==draft.id).map(x=>x.activityId));
+  const achB=a=>`<button class="ach${a.id===draft.activityId?' on':''}" data-pick="${a.id}" ${taken.has(a.id)?'disabled':''}>${tileH(a)}<span class="at"><b>${esc(a.name)}</b><span>${taken.has(a.id)?'Déjà déclarée ce jour':esc(a.sub)||'&nbsp;'}</span></span></button>`;
+  const intim=isInt(draft.activityId);
   $sb.innerHTML=head(`${DL[wd]} ${d.getDate()} ${ML[d.getMonth()]}`)+
-  `<div class="fs"><div class="fl">Activité</div><div class="agrid">${S.activities.map(a=>`<button class="ach${a.id===draft.activityId?' on':''}" data-pick="${a.id}" ${taken.has(a.id)?'disabled':''}>${tileH(a)}<span class="at"><b>${esc(a.name)}</b><span>${taken.has(a.id)?'Déjà déclarée ce jour':esc(a.sub)||'&nbsp;'}</span></span></button>`).join('')}</div></div>
+  `<div class="fs"><div class="fl">Activité${intimateOn()?`<button class="lnk" data-showint>${draft.showInt?'Masquer':'Afficher'} les activités intimes</button>`:''}</div><div class="agrid">${normalActs().map(achB).join('')}</div>
+   ${intimateOn()&&draft.showInt?`<div class="sub">Activités intimes</div>${intimateActs().length?`<div class="agrid">${intimateActs().map(achB).join('')}</div>`:'<p class="hint">Crée tes activités intimes dans l\'onglet Activités.</p>'}`:''}</div>
   <div class="fs"><label class="fl" for="fDesc">Description <span id="cDesc">${draft.desc.length}/250</span></label><textarea class="inp" id="fDesc" maxlength="250" placeholder="Comment s'est passée la séance ?">${esc(draft.desc)}</textarea></div>
   <div class="fs"><div class="fl">Sensation</div><div class="stars">${[1,2,3,4,5].map(i=>`<button class="${i<=draft.rating?'on':''}" data-rate="${i}" aria-label="${i} étoile${i>1?'s':''}"><span class="ms${i<=draft.rating?' fill':''}">star</span></button>`).join('')}</div></div>
-  ${!draft.activityId?'':`<div class="fs"><div class="fl">${prof?PROFILES[prof].label:'Exercices'}</div>${draft.order.map(k=>metInput(met(k))).join('')}
-   ${prof?`<div class="calc" id="calc">${calcTxt()}</div>`:avail.length?`<select class="inp" id="fAddMet"><option value="">+ Ajouter un exercice…</option>${avail.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>`:draft.order.length?'':'<p class="hint">Crée tes exercices dans l\'onglet Activités.</p>'}</div>`}
+  ${!draft.activityId||intim?'':`<div class="fs"><div class="fl">${prof?PROFILES[prof].label:'Exercices'}</div>${draft.order.map(k=>metInput(met(k))).join('')}
+   ${prof?`<div class="calc" id="calc">${calcTxt()}</div>`:avail.length?`<select class="inp" id="fAddMet"><option value="">+ Ajouter un exercice…</option>${availL.length&&availO.length?`<optgroup label="Liés à cette activité">${opts(availL)}</optgroup><optgroup label="Autres exercices">${opts(availO)}</optgroup>`:opts(avail)}</select>`:draft.order.length?'':'<p class="hint">Crée tes exercices dans l\'onglet Activités.</p>'}</div>`}
   ${err?`<p class="err">${esc(err)}</p>`:''}
   <div class="foot">${draft.isNew?'':delBtn}<button class="btn primary" data-save>Enregistrer</button></div>`;
 }
@@ -448,6 +500,7 @@ function saveEntry(){
     if(v===null)continue;if(typeof v==='object'?Object.values(v).some(isNaN):isNaN(v))return drawEntry(`Valeur invalide pour « ${m.name} »${m.type==='duration'||m.type==='pace'?' (format attendu : 5:42 ou 1:02:10)':''}.`);
     values[k]=v}
   if(isTaken(draft))return drawEntry('Cette activité est déjà déclarée ce jour-là.');
+  if(draft.isNew&&S.entries.filter(x=>x.date===draft.date).length>=MAX_PER_DAY)return drawEntry(`${MAX_PER_DAY} activités maximum par jour.`);
   const c=compute(values,profileOf(draft.activityId));if(c)Object.assign(values,c);
   const rec={id:draft.id,date:draft.date,activityId:draft.activityId,desc:draft.desc.slice(0,250),rating:draft.rating,values};
   const i=S.entries.findIndex(e=>e.id===rec.id);if(i>=0)S.entries[i]=rec;else S.entries.push(rec);
@@ -456,34 +509,40 @@ function saveEntry(){
 
 /* activité */
 function openAct(id){const a=id&&S.activities.find(x=>x.id===id);
-  draft=a?{color:'c1',...a,isNew:false}:{id:uid(),name:'',sub:'',icon:ICONS[0],color:'c1',isNew:true};openSheet('act');drawAct()}
+  draft=a?{color:'c1',intimate:false,...a,isNew:false}:(arguments[1]?{id:uid(),name:'',sub:'',icon:INTIMATE_ICONS[0][0],color:'c10',intimate:true,isNew:true}:{id:uid(),name:'',sub:'',icon:ICONS[0],color:'c1',intimate:false,isNew:true});openSheet('act');drawAct()}
 function drawAct(err){
-  $sb.innerHTML=head(draft.isNew?'Nouvelle activité':'Modifier l\'activité')+
-  `<div class="fs"><label class="fl" for="aName">Nom</label><input class="inp" id="aName" maxlength="40" value="${esc(draft.name)}" placeholder="Ex. Natation"></div>
-   <div class="fs"><label class="fl" for="aSub">Sous-titre <span id="cSub">${draft.sub.length}/80</span></label><input class="inp" id="aSub" maxlength="80" value="${esc(draft.sub)}" placeholder="Ex. Crawl, bassin 25 m"></div>
+  const icons=draft.intimate?INTIMATE_ICONS:ICONS.map(i=>[i,i.replace(/_/g,' ')]);
+  $sb.innerHTML=head(draft.intimate?(draft.isNew?'Nouvelle activité intime':'Modifier l\'activité intime'):(draft.isNew?'Nouvelle activité':'Modifier l\'activité'))+
+  `<div class="fs"><label class="fl" for="aName">Nom</label><input class="inp" id="aName" maxlength="40" value="${esc(draft.name)}" placeholder="${draft.intimate?'Ex. Soirée en amoureux':'Ex. Natation'}"></div>
+   <div class="fs"><label class="fl" for="aSub">Sous-titre <span id="cSub">${draft.sub.length}/80</span></label><input class="inp" id="aSub" maxlength="80" value="${esc(draft.sub)}" placeholder="${draft.intimate?'Facultatif':'Ex. Crawl, bassin 25 m'}"></div>
    <div class="fs"><div class="fl">Couleur <span id="cName">${COLORS.find(c=>c[0]===draft.color)[1]}</span></div><div class="sw">${COLORS.map(([k,n])=>`<button class="swb${k===draft.color?' on':''}" style="--c:var(--${k})" data-color="${k}" aria-label="${n}"></button>`).join('')}</div></div>
-   <div class="fs"><div class="fl">Icône</div><div class="icgrid" id="icg" style="--c:var(--${draft.color})">${ICONS.map(ic=>`<button class="ic${ic===draft.icon?' on':''}" data-icon="${ic}" aria-label="${ic.replace(/_/g,' ')}"><span class="ms">${ic}</span></button>`).join('')}</div><p class="hint">Les icônes course, vélo, natation et randonnée activent leurs propres mesures (durée, distance…).</p></div>
+   <div class="fs"><div class="fl">Icône</div><div class="icgrid" id="icg" style="--c:var(--${draft.color})">${icons.map(([ic,lab])=>`<button class="ic${ic===draft.icon?' on':''}" data-icon="${ic}" aria-label="${esc(lab)}" title="${esc(lab)}"><span class="ms">${ic}</span></button>`).join('')}</div>${draft.intimate?'':'<p class="hint">Les icônes course, vélo, natation et randonnée activent leurs propres mesures (durée, distance…).</p>'}</div>
    ${err?`<p class="err">${esc(err)}</p>`:''}
    <div class="foot">${draft.isNew?'':delBtn}<button class="btn primary" data-save>Enregistrer</button></div>`}
 function saveAct(){if(!draft.name.trim())return drawAct('Donne un nom à l\'activité.');
-  const rec={id:draft.id,name:draft.name.trim(),sub:draft.sub.trim().slice(0,80),icon:draft.icon,color:draft.color};
+  const rec={id:draft.id,name:draft.name.trim(),sub:draft.sub.trim().slice(0,80),icon:draft.icon,color:draft.color,intimate:!!draft.intimate};
   const i=S.activities.findIndex(a=>a.id===rec.id);if(i>=0)S.activities[i]=rec;else S.activities.push(rec);save();closeSheet();render();toast('Activité enregistrée')}
 
 /* exercice */
 function openMet(id){const m=id&&S.metrics.find(x=>x.id===id);
-  draft=m?{...m,isNew:false}:{id:uid(),name:'',type:'sets',unit:'',isNew:true};openSheet('met');drawMet()}
+  draft=m?{activityId:null,icon:null,...m,isNew:false}:{id:uid(),name:'',type:'sets',unit:'',activityId:null,icon:null,isNew:true};openSheet('met');drawMet()}
 function drawMet(err){
+  const la=linkable();const cur=exIcon(draft);const parent=draft.activityId&&S.activities.find(a=>a.id===draft.activityId);
   $sb.innerHTML=head(draft.isNew?'Nouvel exercice':'Modifier l\'exercice')+
   `<div class="fs"><label class="fl" for="mName">Nom</label><input class="inp" id="mName" maxlength="40" value="${esc(draft.name)}"><p class="hint">Saisi en séries × kg × reps à chaque séance.</p></div>
+   <div class="fs"><label class="fl" for="mAct">Activité liée</label><select class="inp" id="mAct"><option value="">Aucune</option>${la.map(a=>`<option value="${a.id}"${a.id===draft.activityId?' selected':''}>${esc(a.name)}${a.sub?' · '+esc(a.sub):''}</option>`).join('')}</select>
+     <p class="hint">Proposé automatiquement quand tu déclares une séance de cette activité.</p></div>
+   <div class="fs"><div class="fl icg-auto"><span>Icône</span>${draft.icon?`<button class="lnk" data-iconauto>${parent?'Reprendre celle de l\'activité':'Icône par défaut'}</button>`:`<span>${parent?'Celle de l\'activité':'Par défaut'}</span>`}</div>
+     <div class="icgrid" style="--c:var(--${exColor(draft)})">${ICONS.map(ic=>`<button class="ic${ic===cur?' on':''}" data-icon="${ic}" aria-label="${ic.replace(/_/g,' ')}"><span class="ms">${ic}</span></button>`).join('')}</div></div>
    ${err?`<p class="err">${esc(err)}</p>`:''}
    <div class="foot">${draft.isNew?'':delBtn}<button class="btn primary" data-save>Enregistrer</button></div>`}
 function saveMet(){if(!draft.name.trim())return drawMet('Donne un nom à l\'exercice.');
-  const rec={id:draft.id,name:draft.name.trim(),type:'sets',unit:''};
+  const rec={id:draft.id,name:draft.name.trim(),type:'sets',unit:'',activityId:draft.activityId||null,icon:draft.icon||null};
   const i=S.metrics.findIndex(m=>m.id===rec.id);if(i>=0)S.metrics[i]=rec;else S.metrics.push(rec);save();closeSheet();render();toast('Exercice enregistré')}
 
 function doDelete(){
   if(sheetKind==='entry'){S.entries=S.entries.filter(e=>e.id!==draft.id);toast('Séance supprimée')}
-  if(sheetKind==='act'){S.activities=S.activities.filter(a=>a.id!==draft.id);S.entries=S.entries.filter(e=>e.activityId!==draft.id);toast('Activité supprimée')}
+  if(sheetKind==='act'){S.activities=S.activities.filter(a=>a.id!==draft.id);S.entries=S.entries.filter(e=>e.activityId!==draft.id);S.metrics.forEach(m=>{if(m.activityId===draft.id)m.activityId=null});toast('Activité supprimée')}
   if(sheetKind==='met'){S.metrics=S.metrics.filter(m=>m.id!==draft.id);S.entries.forEach(e=>delete e.values[draft.id]);toast('Exercice supprimé')}
   save();closeSheet();render()}
 
@@ -496,7 +555,8 @@ $app.addEventListener('click',e=>{const t=e.target;let b;
   if(b=t.closest('[data-add]'))return openEntry(b.dataset.add);
   if(b=t.closest('[data-entry]')){const en=S.entries.find(x=>x.id===b.dataset.entry);return openEntry(en.date,en.id)}
   if(b=t.closest('[data-act]'))return openAct(b.dataset.act);
-  if(t.closest('[data-newact]'))return openAct();
+  if(b=t.closest('[data-newact]'))return openAct(null,b.dataset.newact==='intimate');
+  if(b=t.closest('[data-intimate]')){S.settings.intimate=!intimateOn();save();renderActs();toast(intimateOn()?'Mode intime activé':'Mode intime désactivé');return}
   if(b=t.closest('[data-met]'))return openMet(b.dataset.met);
   if(t.closest('[data-newmet]'))return openMet();
   if(b=t.closest('[data-stat]')){statMetric=b.dataset.stat;return renderStats()}
@@ -514,11 +574,14 @@ $sb.addEventListener('click',e=>{const t=e.target;let b;
       if(draft.isNew&&empty&&was!==draft.activityId){draft.order=[];draft.raw={}}
       syncOrder();
       return drawEntry()}
+    if(t.closest('[data-showint]')){draft.showInt=!draft.showInt;if(!draft.showInt&&isInt(draft.activityId)){draft.activityId=null;draft.order=[];draft.raw={}}return drawEntry()}
     if(b=t.closest('[data-rate]')){const v=+b.dataset.rate;draft.rating=draft.rating===v?v-1:v;return drawEntry()}
     if(b=t.closest('[data-rmmet]')){const k=b.dataset.rmmet;draft.order=draft.order.filter(x=>x!==k);delete draft.raw[k];return drawEntry()}
   }
   if(sheetKind==='act'&&(b=t.closest('[data-color]'))){draft.color=b.dataset.color;$sb.querySelectorAll('.swb').forEach(x=>x.classList.toggle('on',x===b));document.getElementById('icg').style.setProperty('--c',`var(--${draft.color})`);document.getElementById('cName').textContent=COLORS.find(c=>c[0]===draft.color)[1];return}
   if(sheetKind==='act'&&(b=t.closest('[data-icon]'))){draft.icon=b.dataset.icon;$sb.querySelectorAll('.ic').forEach(x=>x.classList.toggle('on',x===b))}
+  if(sheetKind==='met'){if(b=t.closest('[data-icon]')){const inh=exIcon({...draft,icon:null});draft.icon=b.dataset.icon===inh?null:b.dataset.icon;return drawMet()}
+    if(t.closest('[data-iconauto]')){draft.icon=null;return drawMet()}}
 });
 $sb.addEventListener('input',e=>{const t=e.target;
   if(t.id==='fDesc'){draft.desc=t.value;document.getElementById('cDesc').textContent=`${t.value.length}/250`}
@@ -530,7 +593,7 @@ $sb.addEventListener('input',e=>{const t=e.target;
 });
 $sb.addEventListener('change',e=>{const t=e.target;
   if(t.id==='fAddMet'&&t.value){draft.order.push(t.value);draft.raw[t.value]=toRaw(met(t.value),null);drawEntry();const f=$sb.querySelector(`[data-mi="${t.value}"]`);f&&f.focus()}
-  if(t.id==='mType'){draft.type=t.value;drawMet()}
+  if(t.id==='mAct'){draft.activityId=t.value||null;drawMet()}
 });
 let rT;window.addEventListener('resize',()=>{clearTimeout(rT);rT=setTimeout(()=>{if(tab==='week')renderWeek()},150)});
 render();

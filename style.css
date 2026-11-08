@@ -59,13 +59,15 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .dl b{font-family:var(--font-display);font-size:24px;font-weight:600;line-height:1;width:36px;height:36px;display:grid;place-items:center;border-radius:50%;font-variant-numeric:tabular-nums}
 .day.today .dl b{background:var(--accent);color:var(--accent-ink)}
 .day.today .dl small{color:var(--accent)}
-.db{display:grid;gap:6px;min-width:0}
+.db{display:flex;gap:6px;min-width:0;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scrollbar-width:none}
+.db::-webkit-scrollbar{display:none}
+.db.more{-webkit-mask-image:linear-gradient(to right,#000 82%,transparent);mask-image:linear-gradient(to right,#000 82%,transparent)}
 .rest{color:var(--muted);font-size:14px;padding-top:9px}
 .day.future{opacity:.45}
 .add{width:34px;height:34px;border-radius:50%;border:1.5px dashed var(--line);display:grid;place-items:center;color:var(--muted)}
 .add:hover{border-color:var(--accent);color:var(--accent)}
 
-.entry{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:7px 10px 7px 7px}
+.entry{flex:1 1 0;min-width:calc((100% - 12px) / 3);scroll-snap-align:start;container-type:inline-size;display:block;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0}
 .tile{width:36px;height:36px;border-radius:10px;background:color-mix(in srgb,var(--c,var(--accent)) 16%,var(--surface));color:var(--c,var(--accent));display:grid;place-items:center}
 .et{min-width:0}
 .et b{display:block;font-weight:600;font-size:15px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -74,6 +76,21 @@ button{cursor:pointer;background:none;border:0;padding:0}
 .minis{display:flex;gap:1px;color:var(--star)}
 .minis .ms{font-size:13px}
 .minis .ms:not(.fill){color:var(--line)}
+/* padding sur .ein : les seuils des container queries portent ainsi sur la largeur de la carte */
+.ein{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:center;height:100%;padding:7px 10px 7px 7px}
+@container (max-width:240px){.ein{grid-template-columns:36px minmax(0,1fr)}.ein .minis{display:none}}
+@container (max-width:150px){.ein{gap:8px}.ein .et span,.ein .et b em{display:none}}
+@container (max-width:112px){.ein{grid-template-columns:minmax(0,1fr);justify-items:center;gap:4px}.ein .et{width:100%;text-align:center}.ein .et b{font-size:12px;font-weight:600}}
+.switch{flex:0 0 auto;width:48px;height:28px;border-radius:999px;background:var(--line);position:relative;transition:background .15s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .15s}
+.switch[aria-checked="true"]{background:var(--accent)}
+.switch[aria-checked="true"]::after{transform:translateX(20px)}
+.setrow{display:flex;align-items:center;gap:14px;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.setrow b{display:block;font-weight:600}
+.setrow span{display:block;font-size:13px;color:var(--muted)}
+.fl .lnk{text-transform:none;letter-spacing:0;font-weight:600;font-size:13px;color:var(--accent)}
+.sub{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.icg-auto{display:flex;justify-content:space-between;align-items:center;gap:10px}
 
 /* Listes (Activités, Stats) */
 .page{padding-top:18px;display:grid;gap:22px}

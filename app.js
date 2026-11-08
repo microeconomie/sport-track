@@ -11,6 +11,8 @@ const DN=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 const DL=['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
 const MS=['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
 const ML=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const MAX_PER_DAY=10; // aussi imposé par le trigger st_sessions_guard
+const INTIMATE_ICONS=[['favorite','Cœur'],['local_fire_department','Désir'],['bedtime','Intimité'],['back_hand','Toucher'],['local_florist','Féminité'],['water_drop','Fluides corporels'],['king_bed','Vie sexuelle'],['lock','Secret intime'],['partner_heart','Relation'],['heart_broken','Rupture'],['mail','Messages privés'],['lips','Baiser'],['group','Rencontres'],['redeem','Attention'],['mood_heart','Sentiments']];
 /* Profils liés aux icônes : champs saisis + valeurs calculées */
 const PROFILES={
   run:{label:'Course',icons:['directions_run','sprint'],fields:['dist','dur'],auto:['pace','speed']},
@@ -59,7 +61,8 @@ function fromRaw(m,r){
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 /* ---------- données (Supabase) ---------- */
-let S={activities:[],metrics:[],entries:[]},user=null;
+const EMPTY=()=>({activities:[],metrics:[],entries:[],settings:{intimate:true}});
+let S=EMPTY(),user=null;
 const act=id=>S.activities.find(a=>a.id===id)||{name:'Activité supprimée',sub:'',icon:'help',color:'c12'};
 const met=id=>S.metrics.find(m=>m.id===id);
 const profileOf=aid=>{if(!aid)return null;const ic=act(aid).icon;return Object.keys(PROFILES).find(p=>PROFILES[p].icons.includes(ic))||null};
@@ -67,22 +70,41 @@ const bid=(p,k)=>{const m=S.metrics.find(x=>x.profile===p&&x.type===BTYPE[k]);re
 const fieldIds=p=>PROFILES[p].fields.map(k=>bid(p,k)).filter(Boolean);
 const usedProfiles=()=>Object.keys(PROFILES).filter(p=>S.activities.some(a=>PROFILES[p].icons.includes(a.icon)));
 const exercises=()=>S.metrics.filter(m=>m.type==='sets'&&!m.profile);
+/* mode intime : désactivé, les activités intimes et leurs séances sont masquées partout (rien n'est supprimé) */
+const intimateOn=()=>S.settings.intimate!==false;
+const isInt=aid=>!!(aid&&act(aid).intimate);
+const visible=a=>!a.intimate||intimateOn();
+const normalActs=()=>S.activities.filter(a=>!a.intimate);
+const intimateActs=()=>S.activities.filter(a=>a.intimate);
+/* exercices liés : seulement à une activité non intime et sans profil (règle aussi imposée par st_metrics_guard) */
+const linkable=()=>normalActs().filter(a=>!Object.values(PROFILES).some(P=>P.icons.includes(a.icon)));
+const parentOf=m=>m.activityId&&S.activities.find(a=>a.id===m.activityId);
+const exIcon=m=>m.icon||(parentOf(m)?parentOf(m).icon:'fitness_center');
+const exColor=m=>parentOf(m)?parentOf(m).color:'c12';
+const exTile=m=>`<span class="tile" style="--c:var(--${exColor(m)})"><span class="ms">${exIcon(m)}</span></span>`;
+const sortedEx=()=>{const ord=id=>{const i=S.activities.findIndex(a=>a.id===id);return i<0?1e9:i};return exercises().slice().sort((a,b)=>ord(a.activityId)-ord(b.activityId)||a.name.localeCompare(b.name,'fr'))};
+const linkedEx=aid=>sortedEx().filter(m=>m.activityId===aid);
 
 // PostgREST plafonne à 1000 lignes par requête : on pagine
 async function fetchAll(build){const out=[];for(let from=0;;from+=1000){const{data,error}=await build().range(from,from+999);if(error)throw error;out.push(...data);if(data.length<1000)return out}}
 async function load(){
-  const[acts,mets,sess]=await Promise.all([
-    fetchAll(()=>sb.from('st_activities').select('id,name,subtitle,icon,color,position').order('position').order('created_at')),
-    fetchAll(()=>sb.from('st_metrics').select('id,name,type,unit,profile,position').order('position').order('created_at')),
-    fetchAll(()=>sb.from('st_sessions').select('id,date,activity_id,description,rating,st_session_values(metric_id,value,sets,kg,reps)').order('date').order('id'))]);
-  S.activities=acts.map(a=>({id:a.id,name:a.name,sub:a.subtitle||'',icon:a.icon,color:a.color,position:a.position}));
-  S.metrics=mets.map(m=>({id:m.id,name:m.name,type:m.type,unit:m.unit||'',profile:m.profile,position:m.position}));
+  const[acts,mets,sess,set]=await Promise.all([
+    fetchAll(()=>sb.from('st_activities').select('id,name,subtitle,icon,color,position,intimate').order('position').order('created_at')),
+    fetchAll(()=>sb.from('st_metrics').select('id,name,type,unit,profile,position,activity_id,icon').order('position').order('created_at')),
+    fetchAll(()=>sb.from('st_sessions').select('id,date,activity_id,description,rating,st_session_values(metric_id,value,sets,kg,reps)').order('date').order('id')),
+    sb.from('st_settings').select('intimate_mode').maybeSingle()]);
+  if(set.error)throw set.error;
+  S.settings={intimate:set.data?set.data.intimate_mode!==false:true};
+  S.activities=acts.map(a=>({id:a.id,name:a.name,sub:a.subtitle||'',icon:a.icon,color:a.color,position:a.position,intimate:!!a.intimate}));
+  S.metrics=mets.map(m=>({id:m.id,name:m.name,type:m.type,unit:m.unit||'',profile:m.profile,position:m.position,activityId:m.activity_id||null,icon:m.icon||null}));
   S.entries=sess.map(e=>{const values={};for(const v of e.st_session_values)values[v.metric_id]=v.value!=null?Number(v.value):{s:v.sets,kg:Number(v.kg),r:v.reps};
     return{id:e.id,date:e.date,activityId:e.activity_id,desc:e.description||'',rating:e.rating||0,values}});
 }
 function errMsg(e){const c=e&&e.code;
   if(c==='23505')return'Cette activité est déjà déclarée ce jour-là.';
   if(c==='23514'&&/future/.test(e.message||''))return'Impossible de déclarer une séance à une date future.';
+  if(c==='23514'&&/max_per_day/.test(e.message||''))return`${MAX_PER_DAY} activités maximum par jour.`;
+  if(c==='23514'&&/plain activity/.test(e.message||''))return'Un exercice ne peut être lié qu\'à une activité non intime, hors course, vélo, natation et randonnée.';
   if(c==='23514')return'Une valeur saisie est hors limites.';
   if(/fetch|network/i.test((e&&e.message)||''))return'Pas de connexion au serveur. Réessaie.';
   return'Erreur : '+((e&&e.message)||'inconnue')}
@@ -95,7 +117,9 @@ let toastT;function toast(t){const el=document.getElementById('toast');el.textCo
 
 function weekList(){let first=addD(CUR_MON,-7*8);for(const e of S.entries){const m=monday(pISO(e.date));if(m<first)first=m}
   const out=[];for(let m=first;m<=CUR_MON;m=addD(m,7))out.push(m);return out}
-const byDate=()=>{const o={};for(const e of S.entries)(o[e.date]=o[e.date]||[]).push(e);return o};
+const byDate=()=>{const o={};for(const e of S.entries){if(!visible(act(e.activityId)))continue;(o[e.date]=o[e.date]||[]).push(e)}return o};
+// total réel du jour, séances masquées comprises : c'est ce que compte la limite côté base
+const dayCount=d=>S.entries.filter(e=>e.date===d).length;
 
 /* ---------- connexion ---------- */
 function renderLogin(err){
@@ -129,7 +153,7 @@ async function boot(){
 sb.auth.onAuthStateChange((event,session)=>{
   // pas d'appel Supabase attendu dans ce callback : on diffère
   if(session){if(!user||user.id!==session.user.id){user=session.user;setTimeout(boot,0)}}
-  else{user=null;S={activities:[],metrics:[],entries:[]};setTimeout(()=>renderLogin(),0)}
+  else{user=null;S=EMPTY();setTimeout(()=>renderLogin(),0)}
 });
 
 /* ---------- vue Semaine ---------- */
@@ -139,9 +163,10 @@ function entryChip(e){const a=act(e.activityId);
   const hasEx=S.metrics.some(m=>m.type==='sets'&&e.values[m.id]!=null);
   const sum=hasEx?'':S.metrics.filter(m=>m.type!=='sets'&&e.values[m.id]!=null).slice(0,2).map(m=>fmt(m,e.values[m.id])).join(' · ');
   const line=hasEx?'':(sum||e.desc||'');
-  return `<button class="entry" data-entry="${e.id}">${tileH(a)}
+  // .ein : grille interne, rétrécie par container queries selon la largeur de la carte
+  return `<button class="entry" data-entry="${e.id}" aria-label="${esc(a.name)}${a.sub?', '+esc(a.sub):''}"><span class="ein">${tileH(a)}
   <span class="et"><b>${esc(a.name)}${a.sub?` <em>· ${esc(a.sub)}</em>`:''}</b>${line?`<span>${esc(line)}</span>`:''}</span>
-  <span class="minis" aria-label="${e.rating} sur 5">${stars(e.rating)}</span></button>`}
+  <span class="minis" aria-label="${e.rating} sur 5">${stars(e.rating)}</span></span></button>`}
 function renderWeek(){
   const weeks=weekList(),bd=byDate();if(wkIdx==null||wkIdx>=weeks.length)wkIdx=weeks.length-1;
   const counts=weeks.map(m=>{let n=0;for(let i=0;i<7;i++)n+=(bd[iso(addD(m,i))]||[]).length;return n});
@@ -149,8 +174,8 @@ function renderWeek(){
   let strip='';for(let i=start;i<weeks.length;i++)strip+=`<button class="bar${i===wkIdx?' on':''}" data-goto="${i}" aria-label="Semaine ${isoWeek(weeks[i])}, ${counts[i]} séances"><i style="height:${Math.round(4+counts[i]/maxC*34)}px"></i><span>S${isoWeek(weeks[i])}</span></button>`;
   let slides='';weeks.forEach(m=>{let h='<div class="wk">';for(let i=0;i<7;i++){const d=addD(m,i),s=iso(d),list=bd[s]||[],fut=s>TODAY_ISO;
       h+=`<div class="day${s===TODAY_ISO?' today':''}${fut?' future':''}"><div class="dl"><small>${DN[i]}</small><b>${d.getDate()}</b></div>
-      <div class="db">${list.length?list.map(entryChip).join(''):`<div class="rest">${fut?'À venir':'Repos'}</div>`}</div>
-      ${fut?'<span></span>':`<button class="add" data-add="${s}" aria-label="Ajouter une activité le ${DL[i]} ${d.getDate()}"><span class="ms">add</span></button>`}</div>`}
+      <div class="db${list.length>3?' more':''}">${list.length?list.map(entryChip).join(''):`<div class="rest">${fut?'À venir':'Repos'}</div>`}</div>
+      ${fut||dayCount(s)>=MAX_PER_DAY?'<span></span>':`<button class="add" data-add="${s}" aria-label="Ajouter une activité le ${DL[i]} ${d.getDate()}"><span class="ms">add</span></button>`}</div>`}
     slides+=h+'</div>'});
   $app.innerHTML=`<header class="top"><div class="brand"><b>sport-track</b><button class="pill" data-today ${wkIdx===weeks.length-1?'hidden':''}>Cette semaine</button></div>
     <div class="wkrow"><div class="wkt"><h1 id="wkT"></h1><p id="wkR" class="num"></p></div>
@@ -169,15 +194,22 @@ function renderWeek(){
 function goWeek(i){const W=document.getElementById('weeks');if(!W)return;const n=W.children.length;i=Math.max(0,Math.min(n-1,i));W.scrollTo({left:i*W.clientWidth})}
 
 /* ---------- vue Activités ---------- */
+const actRows=list=>`<div class="list">${list.map(a=>`<button class="row" data-act="${a.id}">${tileH(a)}
+     <span class="et"><b>${esc(a.name)}</b><span>${a.sub?esc(a.sub):'Pas de sous-titre'}</span></span><span class="ms chev">chevron_right</span></button>`).join('')}</div>`;
 function renderActs(){
+  const ia=intimateActs();
   $app.innerHTML=`<div class="page">
    <div class="ph"><h1>Activités</h1><button class="lbtn" data-newact><span class="ms">add</span>Nouvelle</button></div>
-   <div class="list">${S.activities.map(a=>`<button class="row" data-act="${a.id}">${tileH(a)}
-     <span class="et"><b>${esc(a.name)}</b><span>${a.sub?esc(a.sub):'Pas de sous-titre'}</span></span><span class="ms chev">chevron_right</span></button>`).join('')}</div>
+   ${actRows(normalActs())}
    <p class="hint">Suivi automatique selon l'icône de l'activité : course (distance, durée, allure, vitesse), vélo (durée, distance, vitesse), natation (durée, longueurs), randonnée (durée, distance, dénivelé positif).</p>
+   ${intimateOn()?`<div class="ph"><h2>Activités intimes</h2><button class="lbtn" data-newact="intimate"><span class="ms">add</span>Nouvelle</button></div>
+   ${ia.length?actRows(ia):'<div class="empty">Aucune activité intime pour l\'instant.</div>'}`:''}
    <div class="ph"><h2>Exercices</h2><button class="lbtn" data-newmet><span class="ms">add</span>Nouveau</button></div>
-   ${exercises().length?`<div class="list">${exercises().map(m=>{const n=S.entries.filter(e=>e.values[m.id]!=null).length;return `<button class="row" data-met="${m.id}"><span class="tile"><span class="ms">fitness_center</span></span>
-     <span class="et"><b>${esc(m.name)}</b><span>Séries × kg × reps · ${n} séance${n>1?'s':''}</span></span><span class="ms chev">chevron_right</span></button>`}).join('')}</div>`:'<div class="empty">Aucun exercice. Ajoute par exemple tes exercices de musculation.</div>'}
+   ${exercises().length?`<div class="list">${sortedEx().map(m=>{const n=S.entries.filter(e=>e.values[m.id]!=null).length;const pa=parentOf(m);return `<button class="row" data-met="${m.id}">${exTile(m)}
+     <span class="et"><b>${esc(m.name)}</b><span>${pa?esc(pa.name)+(pa.sub?' · '+esc(pa.sub):''):'Aucune activité liée'} · ${n} séance${n>1?'s':''}</span></span><span class="ms chev">chevron_right</span></button>`}).join('')}</div>`:'<div class="empty">Aucun exercice. Ajoute par exemple tes exercices de musculation.</div>'}
+   <div class="ph"><h2>Mode intime</h2></div>
+   <div class="setrow"><label for="intSw"><b>Activités intimes</b><span>${intimateOn()?'Visibles dans la semaine, les activités et la saisie.':'Masquées partout. Rien n\'est supprimé.'}</span></label>
+     <button class="switch" id="intSw" role="switch" aria-checked="${intimateOn()}" data-intimate aria-label="Mode intime"></button></div>
    <p class="hint">Connecté : ${esc(user&&user.email)}. <button data-logout>Se déconnecter</button></p></div>`}
 
 /* ---------- vue Stats ---------- */
@@ -252,27 +284,35 @@ function openEntry(date,id){
   if(e){draft={id:e.id,isNew:false,date:e.date,activityId:e.activityId,desc:e.desc||'',rating:e.rating||0,order:byMetricOrder(Object.keys(e.values)).filter(k=>!AUTO.includes(met(k).type)),raw:{}};
     draft.order.forEach(k=>draft.raw[k]=toRaw(met(k),e.values[k]));syncOrder()}
   else{draft={id:null,isNew:true,date,activityId:null,desc:'',rating:0,order:[],raw:{}}}
+  draft.showInt=intimateOn()&&isInt(draft.activityId);
   openSheet('entry');drawEntry();
 }
 // ordre de la liste des exercices (l'ordre des valeurs renvoyées par la base n'est pas garanti)
 const byMetricOrder=ids=>S.metrics.map(m=>m.id).filter(id=>ids.includes(id));
 function lastMetricsFor(aid){const l=S.entries.filter(e=>e.activityId===aid).sort((a,b)=>a.date<b.date?1:-1)[0];return l?byMetricOrder(Object.keys(l.values)).filter(k=>met(k).type==='sets'&&!met(k).profile):[]}
-// activité à profil : ses champs fixes ; sinon les exercices (préremplis depuis la dernière séance pour une nouvelle)
+// activité intime : ni exercices ni mesures ; activité à profil : ses champs fixes ; sinon les exercices,
+// préremplis (vides) pour une nouvelle séance avec les exercices liés à l'activité, à défaut ceux de sa dernière séance
 function syncOrder(){if(!draft.activityId)return;
+  if(isInt(draft.activityId)){draft.order=[];draft.raw={};return}
   const pr=profileOf(draft.activityId);
   if(pr){const ids=fieldIds(pr);draft.order=ids;ids.forEach(k=>{if(!draft.raw[k])draft.raw[k]=toRaw(met(k),null)})}
-  else{draft.order=draft.order.filter(k=>met(k)&&met(k).type==='sets');if(draft.isNew&&!draft.order.length){draft.order=lastMetricsFor(draft.activityId);draft.order.forEach(k=>{if(!draft.raw[k])draft.raw[k]=toRaw(met(k),null)})}}
+  else{draft.order=draft.order.filter(k=>met(k)&&met(k).type==='sets');if(draft.isNew&&!draft.order.length){const ln=linkedEx(draft.activityId).map(m=>m.id);draft.order=ln.length?ln:lastMetricsFor(draft.activityId);draft.order.forEach(k=>{if(!draft.raw[k])draft.raw[k]=toRaw(met(k),null)})}}
   Object.keys(draft.raw).forEach(k=>{if(!draft.order.includes(k))delete draft.raw[k]})}
 function drawEntry(err){
   const d=pISO(draft.date);const wd=(d.getDay()+6)%7;
-  const avail=exercises().filter(m=>!draft.order.includes(m.id));const prof=profileOf(draft.activityId);
+  const avail=sortedEx().filter(m=>!draft.order.includes(m.id));const prof=profileOf(draft.activityId);
+  const availL=avail.filter(m=>m.activityId===draft.activityId),availO=avail.filter(m=>m.activityId!==draft.activityId);
+  const opts=l=>l.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
   const taken=new Set(S.entries.filter(x=>x.date===draft.date&&x.id!==draft.id).map(x=>x.activityId));
+  const achB=a=>`<button class="ach${a.id===draft.activityId?' on':''}" data-pick="${a.id}" ${taken.has(a.id)?'disabled':''}>${tileH(a)}<span class="at"><b>${esc(a.name)}</b><span>${taken.has(a.id)?'Déjà déclarée ce jour':esc(a.sub)||'&nbsp;'}</span></span></button>`;
+  const intim=isInt(draft.activityId);
   $sb.innerHTML=head(`${DL[wd]} ${d.getDate()} ${ML[d.getMonth()]}`)+
-  `<div class="fs"><div class="fl">Activité</div><div class="agrid">${S.activities.map(a=>`<button class="ach${a.id===draft.activityId?' on':''}" data-pick="${a.id}" ${taken.has(a.id)?'disabled':''}>${tileH(a)}<span class="at"><b>${esc(a.name)}</b><span>${taken.has(a.id)?'Déjà déclarée ce jour':esc(a.sub)||'&nbsp;'}</span></span></button>`).join('')}</div></div>
+  `<div class="fs"><div class="fl">Activité${intimateOn()?`<button class="lnk" data-showint>${draft.showInt?'Masquer':'Afficher'} les activités intimes</button>`:''}</div><div class="agrid">${normalActs().map(achB).join('')}</div>
+   ${intimateOn()&&draft.showInt?`<div class="sub">Activités intimes</div>${intimateActs().length?`<div class="agrid">${intimateActs().map(achB).join('')}</div>`:'<p class="hint">Crée tes activités intimes dans l\'onglet Activités.</p>'}`:''}</div>
   <div class="fs"><label class="fl" for="fDesc">Description <span id="cDesc">${draft.desc.length}/250</span></label><textarea class="inp" id="fDesc" maxlength="250" placeholder="Comment s'est passée la séance ?">${esc(draft.desc)}</textarea></div>
   <div class="fs"><div class="fl">Sensation</div><div class="stars">${[1,2,3,4,5].map(i=>`<button class="${i<=draft.rating?'on':''}" data-rate="${i}" aria-label="${i} étoile${i>1?'s':''}"><span class="ms${i<=draft.rating?' fill':''}">star</span></button>`).join('')}</div></div>
-  ${!draft.activityId?'':`<div class="fs"><div class="fl">${prof?PROFILES[prof].label:'Exercices'}</div>${draft.order.map(k=>metInput(met(k))).join('')}
-   ${prof?`<div class="calc" id="calc">${calcTxt()}</div>`:avail.length?`<select class="inp" id="fAddMet"><option value="">+ Ajouter un exercice…</option>${avail.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select>`:draft.order.length?'':'<p class="hint">Crée tes exercices dans l\'onglet Activités.</p>'}</div>`}
+  ${!draft.activityId||intim?'':`<div class="fs"><div class="fl">${prof?PROFILES[prof].label:'Exercices'}</div>${draft.order.map(k=>metInput(met(k))).join('')}
+   ${prof?`<div class="calc" id="calc">${calcTxt()}</div>`:avail.length?`<select class="inp" id="fAddMet"><option value="">+ Ajouter un exercice…</option>${availL.length&&availO.length?`<optgroup label="Liés à cette activité">${opts(availL)}</optgroup><optgroup label="Autres exercices">${opts(availO)}</optgroup>`:opts(avail)}</select>`:draft.order.length?'':'<p class="hint">Crée tes exercices dans l\'onglet Activités.</p>'}</div>`}
   ${err?`<p class="err">${esc(err)}</p>`:''}
   <div class="foot">${draft.isNew?'':delBtn}<button class="btn primary" data-save>Enregistrer</button></div>`;
 }
@@ -310,6 +350,9 @@ function saveEntry(){
     if(typeof v==='object'?Object.values(v).some(isNaN):isNaN(v))return drawEntry(`Valeur invalide pour « ${m.name} ».`);
     values[k]=v}
   if(isTaken(draft))return drawEntry('Cette activité est déjà déclarée ce jour-là.');
+  const was=!draft.isNew&&S.entries.find(x=>x.id===draft.id);
+  if((!was||was.date!==draft.date)&&dayCount(draft.date)>=MAX_PER_DAY)return drawEntry(`${MAX_PER_DAY} activités maximum par jour.`);
+  if(isInt(draft.activityId))for(const k in values)delete values[k];
   const c=compute(values,profileOf(draft.activityId));if(c)Object.assign(values,c);
   const rows=Object.entries(values).map(([id,v])=>typeof v==='object'?{metric_id:id,sets:v.s,kg:v.kg,reps:v.r}:{metric_id:id,value:v});
   const isNew=draft.isNew,dr=draft;
@@ -318,35 +361,48 @@ function saveEntry(){
 }
 
 /* activité */
-function openAct(id){const a=id&&S.activities.find(x=>x.id===id);
-  draft=a?{color:'c1',...a,isNew:false}:{id:null,name:'',sub:'',icon:ICONS[0],color:'c1',isNew:true};openSheet('act');drawAct()}
+function openAct(id,intimate){const a=id&&S.activities.find(x=>x.id===id);
+  draft=a?{color:'c1',intimate:false,...a,isNew:false}
+    :intimate?{id:null,name:'',sub:'',icon:INTIMATE_ICONS[0][0],color:'c10',intimate:true,isNew:true}
+    :{id:null,name:'',sub:'',icon:ICONS[0],color:'c1',intimate:false,isNew:true};
+  openSheet('act');drawAct()}
 function drawAct(err){
   // une activité dont l'icône a été retirée de la liste la garde jusqu'à ce qu'on en choisisse une autre
-  const icons=ICONS.includes(draft.icon)?ICONS:[draft.icon,...ICONS];
-  $sb.innerHTML=head(draft.isNew?'Nouvelle activité':'Modifier l\'activité')+
-  `<div class="fs"><label class="fl" for="aName">Nom</label><input class="inp" id="aName" maxlength="40" value="${esc(draft.name)}" placeholder="Ex. Natation"></div>
-   <div class="fs"><label class="fl" for="aSub">Sous-titre <span id="cSub">${draft.sub.length}/80</span></label><input class="inp" id="aSub" maxlength="80" value="${esc(draft.sub)}" placeholder="Ex. Crawl, bassin 25 m"></div>
+  let icons=draft.intimate?INTIMATE_ICONS:ICONS.map(i=>[i,i.replace(/_/g,' ')]);
+  if(!icons.some(([ic])=>ic===draft.icon))icons=[[draft.icon,draft.icon.replace(/_/g,' ')],...icons];
+  $sb.innerHTML=head(draft.intimate?(draft.isNew?'Nouvelle activité intime':'Modifier l\'activité intime'):(draft.isNew?'Nouvelle activité':'Modifier l\'activité'))+
+  `<div class="fs"><label class="fl" for="aName">Nom</label><input class="inp" id="aName" maxlength="40" value="${esc(draft.name)}" placeholder="${draft.intimate?'Ex. Soirée en amoureux':'Ex. Natation'}"></div>
+   <div class="fs"><label class="fl" for="aSub">Sous-titre <span id="cSub">${draft.sub.length}/80</span></label><input class="inp" id="aSub" maxlength="80" value="${esc(draft.sub)}" placeholder="${draft.intimate?'Facultatif':'Ex. Crawl, bassin 25 m'}"></div>
    <div class="fs"><div class="fl">Couleur <span id="cName">${COLORS.find(c=>c[0]===draft.color)[1]}</span></div><div class="sw">${COLORS.map(([k,n])=>`<button class="swb${k===draft.color?' on':''}" style="--c:var(--${k})" data-color="${k}" aria-label="${n}"></button>`).join('')}</div></div>
-   <div class="fs"><div class="fl">Icône</div><div class="icgrid" id="icg" style="--c:var(--${draft.color})">${icons.map(ic=>`<button class="ic${ic===draft.icon?' on':''}" data-icon="${ic}" aria-label="${ic.replace(/_/g,' ')}"><span class="ms">${ic}</span></button>`).join('')}</div><p class="hint">Les icônes course, vélo, natation et randonnée activent leurs propres mesures (durée, distance…).</p></div>
+   <div class="fs"><div class="fl">Icône</div><div class="icgrid" id="icg" style="--c:var(--${draft.color})">${icons.map(([ic,lab])=>`<button class="ic${ic===draft.icon?' on':''}" data-icon="${ic}" aria-label="${esc(lab)}" title="${esc(lab)}"><span class="ms">${ic}</span></button>`).join('')}</div>${draft.intimate?'':'<p class="hint">Les icônes course, vélo, natation et randonnée activent leurs propres mesures (durée, distance…).</p>'}</div>
    ${err?`<p class="err">${esc(err)}</p>`:''}
    <div class="foot">${draft.isNew?'':delBtn}<button class="btn primary" data-save>Enregistrer</button></div>`}
 function saveAct(){if(!draft.name.trim())return drawAct('Donne un nom à l\'activité.');
   const rec={name:draft.name.trim().slice(0,40),subtitle:draft.sub.trim().slice(0,80)||null,icon:draft.icon,color:draft.color};
   const dr=draft;
-  persist(async()=>{const{error}=dr.isNew?await sb.from('st_activities').insert({...rec,position:nextPos(S.activities)}):await sb.from('st_activities').update(rec).eq('id',dr.id);if(error)throw error},
+  persist(async()=>{const{error}=dr.isNew?await sb.from('st_activities').insert({...rec,intimate:!!dr.intimate,position:nextPos(S.activities)}):await sb.from('st_activities').update(rec).eq('id',dr.id);if(error)throw error},
     'Activité enregistrée',drawAct)}
 
 /* exercice (toujours séries × kg × reps ; les mesures intégrées ne passent pas par ici) */
+// activité liée : facultative ; icône null = celle de l'activité liée (sinon fitness_center)
 function openMet(id){const m=id&&exercises().find(x=>x.id===id);
-  draft=m?{...m,isNew:false}:{id:null,name:'',isNew:true};openSheet('met');drawMet()}
+  draft=m?{activityId:null,icon:null,...m,isNew:false}:{id:null,name:'',activityId:null,icon:null,isNew:true};openSheet('met');drawMet()}
 function drawMet(err){
+  const la=linkable();const cur=exIcon(draft);const parent=parentOf(draft);
+  // un lien devenu invalide (activité passée en course, par exemple) reste affiché jusqu'au changement
+  const opts=parent&&!la.includes(parent)?[parent,...la]:la;
+  const icons=ICONS.includes(cur)?ICONS:[cur,...ICONS];
   $sb.innerHTML=head(draft.isNew?'Nouvel exercice':'Modifier l\'exercice')+
   `<div class="fs"><label class="fl" for="mName">Nom</label><input class="inp" id="mName" maxlength="40" value="${esc(draft.name)}"><p class="hint">Saisi en séries × kg × reps à chaque séance.</p></div>
+   <div class="fs"><label class="fl" for="mAct">Activité liée</label><select class="inp" id="mAct"><option value="">Aucune</option>${opts.map(a=>`<option value="${a.id}"${a.id===draft.activityId?' selected':''}>${esc(a.name)}${a.sub?' · '+esc(a.sub):''}</option>`).join('')}</select>
+     <p class="hint">Proposé automatiquement quand tu déclares une séance de cette activité.</p></div>
+   <div class="fs"><div class="fl icg-auto"><span>Icône</span>${draft.icon?`<button class="lnk" data-iconauto>${parent?'Reprendre celle de l\'activité':'Icône par défaut'}</button>`:`<span>${parent?'Celle de l\'activité':'Par défaut'}</span>`}</div>
+     <div class="icgrid" style="--c:var(--${exColor(draft)})">${icons.map(ic=>`<button class="ic${ic===cur?' on':''}" data-icon="${ic}" aria-label="${ic.replace(/_/g,' ')}"><span class="ms">${ic}</span></button>`).join('')}</div></div>
    ${err?`<p class="err">${esc(err)}</p>`:''}
    <div class="foot">${draft.isNew?'':delBtn}<button class="btn primary" data-save>Enregistrer</button></div>`}
 function saveMet(){if(!draft.name.trim())return drawMet('Donne un nom à l\'exercice.');
-  const name=draft.name.trim().slice(0,40),dr=draft;
-  persist(async()=>{const{error}=dr.isNew?await sb.from('st_metrics').insert({name,type:'sets',position:nextPos(S.metrics)}):await sb.from('st_metrics').update({name}).eq('id',dr.id);if(error)throw error},
+  const rec={name:draft.name.trim().slice(0,40),activity_id:draft.activityId||null,icon:draft.icon||null},dr=draft;
+  persist(async()=>{const{error}=dr.isNew?await sb.from('st_metrics').insert({...rec,type:'sets',position:nextPos(S.metrics)}):await sb.from('st_metrics').update(rec).eq('id',dr.id);if(error)throw error},
     'Exercice enregistré',drawMet)}
 
 // les séances d'une activité et les valeurs d'un exercice partent en cascade côté base
@@ -355,6 +411,15 @@ function doDelete(){
   const msg={entry:'Séance supprimée',act:'Activité supprimée',met:'Exercice supprimé'}[sheetKind];
   const redraw={entry:drawEntry,act:drawAct,met:drawMet}[sheetKind];const id=draft.id;
   persist(async()=>{const{error}=await sb.from(table).delete().eq('id',id);if(error)throw error},msg,redraw)}
+
+// affichage immédiat, enregistrement en base ensuite ; en cas d'échec on revient à l'état précédent
+let intBusy=false;
+async function toggleIntimate(){if(intBusy)return;intBusy=true;
+  const v=!intimateOn();S.settings.intimate=v;render();
+  const{error}=await sb.from('st_settings').upsert({user_id:user.id,intimate_mode:v,updated_at:new Date().toISOString()});
+  intBusy=false;
+  if(error){S.settings.intimate=!v;render();return toast(errMsg(error))}
+  toast(v?'Mode intime activé':'Mode intime désactivé')}
 
 /* ---------- événements ---------- */
 document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('[data-tab]');if(!b)return;tab=b.dataset.tab;window.scrollTo(0,0);render()});
@@ -367,7 +432,8 @@ $app.addEventListener('click',e=>{const t=e.target;let b;
   if(b=t.closest('[data-add]'))return openEntry(b.dataset.add);
   if(b=t.closest('[data-entry]')){const en=S.entries.find(x=>x.id===b.dataset.entry);return openEntry(en.date,en.id)}
   if(b=t.closest('[data-act]'))return openAct(b.dataset.act);
-  if(t.closest('[data-newact]'))return openAct();
+  if(b=t.closest('[data-newact]'))return openAct(null,b.dataset.newact==='intimate');
+  if(t.closest('[data-intimate]'))return toggleIntimate();
   if(b=t.closest('[data-met]'))return openMet(b.dataset.met);
   if(t.closest('[data-newmet]'))return openMet();
   if(b=t.closest('[data-stat]')){statMetric=b.dataset.stat;return renderStats()}
@@ -386,11 +452,16 @@ $sb.addEventListener('click',e=>{const t=e.target;let b;
       if(draft.isNew&&empty&&was!==draft.activityId){draft.order=[];draft.raw={}}
       syncOrder();
       return drawEntry()}
+    if(t.closest('[data-showint]')){draft.showInt=!draft.showInt;if(!draft.showInt&&isInt(draft.activityId)){draft.activityId=null;draft.order=[];draft.raw={}}return drawEntry()}
     if(b=t.closest('[data-rate]')){const v=+b.dataset.rate;draft.rating=draft.rating===v?v-1:v;return drawEntry()}
     if(b=t.closest('[data-rmmet]')){const k=b.dataset.rmmet;draft.order=draft.order.filter(x=>x!==k);delete draft.raw[k];return drawEntry()}
   }
   if(sheetKind==='act'&&(b=t.closest('[data-color]'))){draft.color=b.dataset.color;$sb.querySelectorAll('.swb').forEach(x=>x.classList.toggle('on',x===b));document.getElementById('icg').style.setProperty('--c',`var(--${draft.color})`);document.getElementById('cName').textContent=COLORS.find(c=>c[0]===draft.color)[1];return}
   if(sheetKind==='act'&&(b=t.closest('[data-icon]'))){draft.icon=b.dataset.icon;$sb.querySelectorAll('.ic').forEach(x=>x.classList.toggle('on',x===b))}
+  if(sheetKind==='met'){
+    // choisir l'icône héritée revient à ne rien choisir (icon null)
+    if(b=t.closest('[data-icon]')){const inh=exIcon({...draft,icon:null});draft.icon=b.dataset.icon===inh?null:b.dataset.icon;return drawMet()}
+    if(t.closest('[data-iconauto]')){draft.icon=null;return drawMet()}}
 });
 $sb.addEventListener('input',e=>{const t=e.target;
   if(t.id==='fDesc'){draft.desc=t.value;document.getElementById('cDesc').textContent=`${t.value.length}/250`}
@@ -401,6 +472,7 @@ $sb.addEventListener('input',e=>{const t=e.target;
 });
 $sb.addEventListener('change',e=>{const t=e.target;
   if(t.id==='fAddMet'&&t.value){draft.order.push(t.value);draft.raw[t.value]=toRaw(met(t.value),null);drawEntry();const f=$sb.querySelector(`[data-mi="${t.value}"]`);f&&f.focus()}
+  if(t.id==='mAct'){draft.activityId=t.value||null;drawMet()}
 });
 let rT;window.addEventListener('resize',()=>{clearTimeout(rT);rT=setTimeout(()=>{if(user&&tab==='week'&&!$tabbar.hidden)renderWeek()},150)});
 // app laissée ouverte (écran d'accueil iPhone) : au retour, nouveau jour = nouvelle semaine possible, et données d'un autre appareil
